@@ -39,16 +39,15 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
     private UserServiceImpl userService;
     @Override
     public Result setFollow(Long followId, boolean isFollow) {
-      //参数：followId和
+      //参数：followId和isFollow，ture是关注动作，false是取关动作
         //返回ok就行
         //获取当前userId，因为字段封装成了对象，所以就是赋值后保存对象即可
          //获取id，当前关注了->根据userid和followid删除记录；没关注->生成一个对象，保存
         Long userId = UserHolder.getUser().getId();
-        String key=FOLLOW_KEY_PREFIX+userId;
         if(!isFollow){
-        remove(new QueryWrapper<Follow>()
-                    .eq("userId", userId)
-                    .eq("followId", followId));
+         remove(new QueryWrapper<Follow>()
+                 .eq("user_id", userId)
+                 .eq("follow_user_id", followId));
         }
       else{
             Follow follow = new Follow().setFollowUserId(followId).setUserId(userId);

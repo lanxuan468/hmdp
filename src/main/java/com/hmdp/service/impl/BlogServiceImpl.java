@@ -4,6 +4,7 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.ScrollResult;
@@ -173,49 +174,46 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
     @Override
     public Result queryBlogOfFollow(Long max, Integer offset) {
-        // 获取当前登录用户
+        //Long.valueOf(typedTuple.getValue())，typedTuple.getScore().longValue().这里是有序遍历找最小值：
+      //参数是最大时间戳（当前时间），offset默认是0
+        //返回值是有完整的blogList，minTime，offset
+        //获取当前userId，查它的feed。key，max,min,offset,count
         Long userId = UserHolder.getUser().getId();
-        String key = FEED_KEY + userId;
-        // 查询收件箱（关注推送笔记列表）ZREVRANGEBYSCORE key max min LIMIT offset count
+        String key= FEED_KEY+userId;
         Set<ZSetOperations.TypedTuple<String>> typedTuples = stringRedisTemplate.opsForZSet()
-                .reverseRangeByScoreWithScores(key, 0, max, offset, 2);
-        // 非空判断
-        if (CollUtil.isEmpty(typedTuples)) {
+                .reverseRangeByScoreWithScores(key, 0, max, offset, 3);
+        //空。解析到blogId，minTime，offset。完善blog，封装返回
+        if(typedTuples.isEmpty()  | typedTuples==null){
             return Result.ok();
         }
-        // 解析数据：blogId、minTime（时间戳）、offset
-        List<Long> blogIds = new ArrayList<>(typedTuples.size());
-        long minTime = 0L;  // 循环最后一次取出的是最小时间戳
-        int os = 1; // 默认初始偏移量为1。表示只有自己是相同的
+        List<Long> blogIds=new ArrayList<>(typedTuples.size());//8 6 5 5
+        Long minTime = 0L;
+        int os=1;
         for (ZSetOperations.TypedTuple<String> typedTuple : typedTuples) {
-            // 获取blogId
-            blogIds.add(Long.valueOf(typedTuple.getValue()));
-            // 获取score（时间戳）
-            long time = typedTuple.getScore().longValue();
-            if (time == minTime) {
-                // 当前时间等于最小时间，偏移量+1
-                os++;
-            }else {
-                // 当前时间不等于最小时间，更新覆盖最小时间，重置偏移量为1
-                minTime = time;
-                os = 1;
-            }
+             blogIds.add(Long.valueOf(typedTuple.getValue()));
+             if(minTime==typedTuple.getScore().longValue()){
+                 os++;
+             }else{
+                 minTime=typedTuple.getScore().longValue();
+                 os= 1;
+             }
         }
-        // 根据id查询blog，注意保持blogIds的有序性，封装为blog集合
-        String blogIdsStr = StrUtil.join(",", blogIds);
-        List<Blog> blogs = query().in("id", blogIds).last("order by field(id, " + blogIdsStr + ")").list();
+        //ids->query->完善
+        String idStr = StrUtil.join(",", blogIds);
+        List<Blog> blogs = this.list(new LambdaQueryWrapper<Blog>().in(Blog::getId, blogIds)
+                .last("ORDER BY FIELD(id," + idStr + ")"));
         for (Blog blog : blogs) {
-            // 设置blog有关的用户
             queryBlogUser(blog);
-            // 设置blog是否被点赞
             isBlogLiked(blog);
         }
-        // 封装为滚动分页结果对象，返回给前端
         ScrollResult scrollResult = new ScrollResult();
         scrollResult.setList(blogs);
-        scrollResult.setMinTime(minTime);
         scrollResult.setOffset(os);
+        scrollResult.setMinTime(minTime);
+
         return Result.ok(scrollResult);
+
+
     }
 
     private void queryBlogUser(Blog blog) {
